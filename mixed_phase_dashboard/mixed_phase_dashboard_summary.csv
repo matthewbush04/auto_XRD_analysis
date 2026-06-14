@@ -1,0 +1,4 @@
+benchmark,split,v1_micro_f1,v3_micro_f1,micro_f1_change_pp,v1_minor_recall,v3_minor_recall,minor_recall_change_pp
+低含量副相测试,test_minor,0.644,0.664,+2.0 pp,0.209,0.279,+7.1 pp
+高峰重叠测试,test_overlap,0.788,0.803,+1.5 pp,0.585,0.655,+7.0 pp
+电池相关混相测试,test_battery_relevant,0.739,0.802,+6.3 pp,0.403,0.574,+17.1 pp

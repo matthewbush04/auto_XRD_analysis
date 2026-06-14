@@ -1,0 +1,223 @@
+数据集搭建技术亮点总结
+====================
+
+1. 面向电池材料任务的数据范围设计
+--------------------------------
+
+本项目没有直接使用通用无机材料数据集，也没有从 Materials Project 中随机抓取结构，而是围绕电池材料 XRD 物相识别任务设计材料范围。
+
+当前数据库覆盖：
+
+- cathode
+- anode
+- solid electrolyte
+- reference / common decomposition products
+
+这种设计使数据集更贴近电池研究中的实际 XRD 分析场景。应用类别保存在 metadata 中，用于统计和报告；模型第一阶段预测的是具体物相标签，而不是简单判断 cathode/anode 这类用途标签。
+
+
+2. Phase-level label，而不是粗粒度应用分类
+-----------------------------------------
+
+XRD 识别的核心是物相识别，因此当前标签定义为：
+
+phase_label = formula_pretty + "_" + spacegroup_symbol
+
+这样可以区分明显不同的多晶型。例如，仅使用化学式 C 会把 graphite-like carbon 和 diamond-like carbon 合并，但加入 space group 后可以把它们区分开。
+
+这种标签策略比单纯 formula label 更严格，也比 cathode/anode 这种应用类别更符合 XRD phase identification 的任务本质。
+
+
+3. Candidate-pool + diversity selection 下载策略
+-----------------------------------------------
+
+下载阶段不是简单按 API 返回顺序保存材料，而是采用两阶段策略：
+
+1. Collect candidates
+2. Select balanced records
+
+第一阶段按 category / subclass / chemsys 从 Materials Project 收集候选材料。
+
+第二阶段根据以下规则筛选：
+
+- stable structures 优先；
+- energy_above_hull 较低优先；
+- 默认保留 ordered structures；
+- 按 subclass quota 控制不同材料族的覆盖；
+- 按 spacegroup 轮转选择，提高结构多样性；
+- 每个 phase label 最多保留 3 个 Materials Project variants。
+
+这比直接下载 top-K 更可控，可以避免容易查询的材料族过度占据数据库。
+
+
+4. 可追溯 metadata 设计
+----------------------
+
+每个 material record 都保存了丰富 metadata，包括：
+
+- material_id
+- formula_pretty
+- phase_label
+- category
+- subclass
+- chemical_system
+- spacegroup
+- crystal_system
+- energy_above_hull
+- formation_energy_per_atom
+- band_gap
+- density
+- volume
+- nsites
+- is_stable
+- is_ordered
+- cif_path
+- structure_json_path
+
+因此，每条 synthetic XRD pattern 都可以追溯到原始 Materials Project 结构、CIF 文件和材料类别。这提高了数据集的可解释性和可复现性。
+
+
+5. 使用 pymatgen XRDCalculator 生成物理基础谱
+--------------------------------------------
+
+基础峰位和峰强来自：
+
+pymatgen.analysis.diffraction.xrd.XRDCalculator
+
+设置为：
+
+- Cu K-alpha
+- 2theta range: 10-90 degrees
+- 3501 grid points
+
+这保证了 synthetic XRD 的基础 peak positions 和 relative intensities 来自晶体结构，而不是任意手工构造的信号。
+
+
+6. 文献启发的数据增强，而不是简单加噪声
+--------------------------------------
+
+本项目的数据增强参考 synthetic XRD 深度学习文献中的思想，不只是对理想谱加入 Gaussian noise。
+
+当前增强包括：
+
+- lattice perturbation
+- pseudo-Voigt peak profile
+- random peak width
+- Gaussian/Lorentzian mixing eta randomization
+- peak intensity jitter
+- global peak shift
+- polynomial background
+- Gaussian white noise
+- intensity scaling
+- max-intensity normalization
+
+这些增强分别对应真实 XRD 中常见的晶格变化、峰展宽、相对峰强变化、仪器零点偏移、背景漂移和噪声。
+
+
+7. Pseudo-Voigt peak profile
+---------------------------
+
+每个 Bragg peak 使用 pseudo-Voigt profile 展宽：
+
+PV(t; mu, sigma, eta) = (1 - eta) * G(t; mu, sigma) + eta * L(t; mu, sigma)
+
+其中：
+
+- G 是 Gaussian profile；
+- L 是 Lorentzian profile；
+- eta 控制 Gaussian/Lorentzian 混合比例；
+- sigma 控制峰宽。
+
+相比固定 Gaussian broadening，pseudo-Voigt 更接近真实粉末 XRD 峰形。
+
+
+8. Normal test 与 hard test 分离
+-------------------------------
+
+数据集不仅包含 train 和 validation，还包含两个测试集：
+
+- test_normal
+- test_hard
+
+test_normal 使用与训练集相近的扰动范围，用于评估常规泛化性能。
+
+test_hard 使用更强的 peak shift、noise、background、peak width 和 eta 范围，用于专门测试模型在更恶劣实验条件下的鲁棒性。
+
+这种设计比单一测试集更能说明模型是否真正抗噪声、抗峰位偏移和抗背景变化。
+
+
+9. 为 multi-task learning 预留结构目标
+-------------------------------------
+
+数据集不只保存 X 和 y，还保存：
+
+- lattice_params
+- peak_hkls
+- peak_2theta
+- peak_mask
+
+其中 lattice_params 包含：
+
+[a, b, c, alpha, beta, gamma]
+
+这使后续模型可以从单纯 phase classification 扩展为：
+
+- phase classification
+- lattice constant regression
+- Bragg peak error evaluation
+
+因此，数据集天然支持 lattice-aware multi-task learning。
+
+
+10. 为 physics-informed machine learning 预留接口
+------------------------------------------------
+
+通过保存 peak_hkls、peak_2theta 和 peak_mask，后续可以利用 Bragg law 计算预测晶格参数对应的理论峰位，并与 synthetic peak positions 比较。
+
+这支持：
+
+- Bragg peak error metric；
+- Bragg-law consistency regularization；
+- physics-informed multi-task learning。
+
+需要注意的是，这里的 physics-informed 不是完整 XRD simulator，而是基于 Bragg-law peak-position consistency 的物理一致性约束。
+
+
+11. 当前数据集规模
+-----------------
+
+当前已生成的数据集规模为：
+
+- material records: 211
+- phase labels: 207
+- total synthetic XRD patterns: 43,470
+
+split:
+
+- train: 31,050
+- val: 4,140
+- test_normal: 4,140
+- test_hard: 4,140
+
+该规模已经足够支撑第一阶段 single-phase classification baseline 和 lattice-aware multi-task baseline。
+
+
+12. 可诚实汇报的 limitation
+---------------------------
+
+当前数据集仍有明确限制：
+
+- 是 battery-focused pilot，不是完整 500-1000 materials database；
+- 暂时不包含 electrocatalyst；
+- solid electrolyte、reference 和 spinel oxide 数量偏少；
+- synthetic XRD 不能完全代表真实实验 PXRD；
+- preferred orientation 尚未显式建模；
+- peak width 还不是完整 Caglioti U,V,W 模型。
+
+这些限制可以作为下一阶段工作，而不是隐藏问题。
+
+
+汇报时可用的一句话总结
+----------------------
+
+The main contribution of our data stage is not only generating synthetic XRD patterns, but building a traceable, battery-specific, physics-aware dataset that supports phase classification, lattice regression, Bragg-law consistency evaluation, and future mixed-phase identification.

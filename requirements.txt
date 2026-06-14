@@ -1,0 +1,11 @@
+numpy
+pandas
+pymatgen
+mp-api
+tqdm
+scikit-learn
+pillow
+
+# For GPU training, install the CUDA-enabled PyTorch build that matches the target machine.
+# See: https://pytorch.org/get-started/locally/
+torch
