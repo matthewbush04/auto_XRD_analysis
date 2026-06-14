@@ -1,114 +1,59 @@
-# Mixed-Phase Hard-Augmented Training Dataset Report
+# 混相困难增强训练集简要报告
 
-## Purpose
+## 1. 目标
 
-`mixed_v3_hard_augmented` is the first targeted training dataset after the `mixed_v2_hard_eval` diagnosis. It keeps the original `mixed_v1` random-mixture baseline data and adds hard samples only to the training and validation splits.
+`mixed_v3_hard_augmented` 是在困难评估之后构建的增强训练集。它保留 `mixed_v1` 的随机混合样本，并只在训练集和验证集中加入困难样本。
 
-The goal is to test whether targeted data augmentation can improve:
+目标是在不明显损失普通混相识别能力的前提下，提高：
 
-- low-fraction minor phase recall
-- high-overlap phase-pair recognition
-- battery-relevant mixture robustness
+- 少量相召回率；
+- 高峰重叠样本识别能力；
+- 电池相关组合的鲁棒性。
 
-without substantially reducing normal mixed-phase performance.
+## 2. 数据位置
 
-## Output Location
+```text
+data/processed/mixed_phase/mixed_v3_hard_augmented
+```
 
-`data\processed\mixed_phase\mixed_v3_hard_augmented`
+独立困难评估集仍然是：
 
-Generated files:
+```text
+data/processed/mixed_phase/mixed_v2_hard_eval
+```
 
-| File | Samples | Notes |
+注意：`mixed_v2_hard_eval` 只用于最终评估，不进入训练。
+
+## 3. 文件规模
+
+| 文件 | 样本数 | 说明 |
 | --- | ---: | --- |
-| `train.npz` | 43,050 | `mixed_v1/train` plus 12,000 hard samples |
-| `val.npz` | 5,740 | `mixed_v1/val` plus 1,600 hard samples |
-| `test_normal.npz` | 4,140 | copied from `mixed_v1/test_normal` |
-| `test_hard.npz` | 4,140 | copied from `mixed_v1/test_hard` |
-| `dataset_manifest.json` | - | generation metadata |
+| `train.npz` | 43,050 | `mixed_v1/train` + 12,000 个困难样本 |
+| `val.npz` | 5,740 | `mixed_v1/val` + 1,600 个困难样本 |
+| `test_normal.npz` | 4,140 | 沿用普通测试集 |
+| `test_hard.npz` | 4,140 | 沿用普通困难测试集 |
+| `dataset_manifest.json` | - | 生成记录 |
 
-The independent hard benchmark remains:
+## 4. 增强策略
 
-`data\processed\mixed_phase\mixed_v2_hard_eval`
-
-That benchmark should not be used for training.
-
-## Augmentation Policy
-
-Added hard samples:
-
-| Split | Minor | Overlap | Battery-relevant | Total added |
+| 划分 | 少量相 | 峰重叠 | 电池相关 | 新增总数 |
 | --- | ---: | ---: | ---: | ---: |
 | train | 6,000 | 4,200 | 1,800 | 12,000 |
 | val | 800 | 560 | 240 | 1,600 |
 
-Proportions:
+比例设计：
 
-- 50% low-fraction minor-phase mixtures
-- 35% high-overlap phase pairs
-- 15% battery-relevant mixtures
+- 50% 为低比例少量相；
+- 35% 为高重叠物相对；
+- 15% 为电池相关组合。
 
-Minor-phase nominal scenarios:
+少量相比例包括 95/5、90/10、85/15、80/10/10 和 85/10/5。峰重叠样本来自余弦相似度最高的 10% 物相对。
 
-- 95/5
-- 90/10
-- 85/15
-- 80/10/10
-- 85/10/5
+## 5. 训练示例
 
-Overlap samples use cosine similarity among per-phase mean spectra and sample from the top 10% most similar phase pairs.
-
-Battery-relevant scenarios:
-
-- cathode + reference
-- anode + reference
-- solid electrolyte + reference
-- cathode + solid electrolyte + reference
-- anode + solid electrolyte + reference
-
-## Split Composition
-
-### train
-
-| Group | Count |
-| --- | ---: |
-| baseline_random | 31,050 |
-| minor_fraction | 6,000 |
-| peak_overlap | 4,200 |
-| battery_relevant | 1,800 |
-
-Phase-count distribution:
-
-| n phases | Count |
-| ---: | ---: |
-| 1 | 3,250 |
-| 2 | 27,593 |
-| 3 | 12,207 |
-
-### val
-
-| Group | Count |
-| --- | ---: |
-| baseline_random | 4,140 |
-| minor_fraction | 800 |
-| peak_overlap | 560 |
-| battery_relevant | 240 |
-
-Phase-count distribution:
-
-| n phases | Count |
-| ---: | ---: |
-| 1 | 429 |
-| 2 | 3,710 |
-| 3 | 1,601 |
-
-## Recommended First Training Run
-
-The first v3 run should isolate the effect of hard augmentation, so it should use the presence-only mixed-phase CNN without the fraction auxiliary head.
+该实验用于隔离“困难数据增强”的作用，因此建议使用不带比例辅助头的混相 CNN：
 
 ```powershell
-cd <project-root>
-conda activate xrd-cnn
-
 python src\train_mixed_phase_cnn.py `
   --data-dir data\processed\mixed_phase\mixed_v3_hard_augmented `
   --run-name mixed_phase_cnn_v3_hard_aug_presence_50ep `
@@ -122,7 +67,7 @@ python src\train_mixed_phase_cnn.py `
   --max-predictions 3
 ```
 
-After training, evaluate the best checkpoint on `mixed_v2_hard_eval`:
+训练后在独立困难评估集上测试：
 
 ```powershell
 python src\evaluate_mixed_phase_cnn.py `
@@ -136,21 +81,23 @@ python src\evaluate_mixed_phase_cnn.py `
   --overwrite
 ```
 
-## Success Criteria
+## 6. 成功标准
 
-The v3 run should be considered useful if it improves hard-benchmark robustness while preserving normal mixed-phase performance.
+与 v1 基线相比，增强训练应满足：
 
-Primary targets:
+- `test_minor` 少量相召回率明显提升；
+- 5% 和 10% 少量相识别改善；
+- `test_overlap` 的 micro-F1 不明显下降；
+- 普通 `test_normal` 的 micro-F1 下降不超过约 0.01-0.02。
 
-- `test_minor` minor recall improves clearly over the v1 baseline
-- `minor_5pct` and `minor_10pct` recall improve
-- `test_overlap` micro-F1 does not regress
-- `mixed_v3/test_normal` micro-F1 drops by less than about 0.01-0.02 compared with the v1 baseline
+参考基线：
 
-Baseline fixed-threshold reference from `mixed_v2_hard_eval`:
-
-| Model | Split | micro-F1 | minor recall |
+| 模型 | 测试集 | micro-F1 | 少量相召回率 |
 | --- | --- | ---: | ---: |
-| v1 presence-only | test_minor | 0.644 | 0.209 |
-| v1 presence-only | test_overlap | 0.788 | 0.585 |
-| v1 presence-only | test_battery_relevant | 0.739 | 0.403 |
+| v1 仅存在性 | 少量相 | 0.644 | 0.209 |
+| v1 仅存在性 | 峰重叠 | 0.788 | 0.585 |
+| v1 仅存在性 | 电池相关 | 0.739 | 0.403 |
+
+## 7. 小结
+
+困难增强训练集的作用是把模型在困难评估中暴露出的弱点重新加入训练分布，但保持测试集独立。这样可以证明性能提升来自更有针对性的数据构建，而不是测试集泄漏。

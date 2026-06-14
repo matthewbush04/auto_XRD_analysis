@@ -1,169 +1,129 @@
-# Mixed-Phase Hard Evaluation Report
+# 混相困难评估简要报告
 
-## Purpose
+## 1. 目标
 
-The original `mixed_v1` dataset is now treated as the random major-minor baseline for mixed-phase CNN training and normal evaluation. The new `mixed_v2_hard_eval` dataset is a targeted benchmark for diagnosing realistic failure modes:
+`mixed_v2_hard_eval` 是混相模型的困难测试集，用于诊断普通随机混合数据中不容易暴露的问题。它不替代 `mixed_v1`，而是作为额外评估基准。
 
-- low-fraction minor phases
-- highly overlapping phase pairs
-- battery-relevant phase combinations
+重点测试三类场景：
 
-This benchmark is not intended to replace `mixed_v1`. It is designed to answer what the baseline model struggles with after it has already learned ordinary random mixtures.
+- 少量相比例很低；
+- 多物相峰位高度重叠；
+- 电池相关材料组合。
 
-## Generated Dataset
+## 2. 数据集
 
-Output directory:
+输出目录：
 
-`data\processed\mixed_phase\mixed_v2_hard_eval`
+```text
+data/processed/mixed_phase/mixed_v2_hard_eval
+```
 
-Source single-phase split:
+来源单相划分：
 
-`data\processed\single_phase\test_hard.npz`
+```text
+data/processed/single_phase/test_hard.npz
+```
 
-Generated files:
-
-| File | Samples | Main purpose |
+| 文件 | 样本数 | 用途 |
 | --- | ---: | --- |
-| `test_minor.npz` | 4,140 | Low-fraction impurity detection |
-| `test_overlap.npz` | 4,140 | Peak-overlap sensitivity |
-| `test_battery_relevant.npz` | 4,140 | Battery-scene transfer |
+| `test_minor.npz` | 4,140 | 少量相检测 |
+| `test_overlap.npz` | 4,140 | 峰重叠鲁棒性 |
+| `test_battery_relevant.npz` | 4,140 | 电池相关组合测试 |
 
-The generated arrays keep the same core schema as `mixed_v1`, including `X`, `y_multi`, `y_fraction_level`, `component_phase_indices`, `component_fractions`, `n_phases`, and `major_phase_index`. Additional diagnostic fields were added:
+额外诊断字段包括少量相比例区间、峰重叠相似度、重叠等级和电池场景标签。
 
-- `minor_fraction_bin`
-- `hard_eval_type`
-- `component_pair_similarity`
-- `overlap_rank`
-- `overlap_percentile`
-- `overlap_bin`
-- `battery_scenario`
+## 3. 数据组成
 
-## Dataset Composition
+### 少量相测试
 
-### test_minor
+典型比例包括 95/5、90/10、85/15、80/10/10 和 85/10/5。
 
-Nominal fraction scenarios:
-
-- 95/5
-- 90/10
-- 85/15
-- 80/10/10
-- 85/10/5
-
-Counts:
-
-| Group | Count |
+| 分组 | 数量 |
 | --- | ---: |
-| 2-phase | 2,484 |
-| 3-phase | 1,656 |
-| minor_5pct | 1,656 |
-| minor_10pct | 1,656 |
-| minor_15pct | 826 |
+| 2 相 | 2,484 |
+| 3 相 | 1,656 |
+| 5% 少量相 | 1,656 |
+| 10% 少量相 | 1,656 |
+| 15% 少量相 | 826 |
 
-Mean effective major fraction: 0.870  
-Mean effective minor fraction: 0.093
+平均主相有效比例为 0.870，平均少量相有效比例为 0.093。
 
-### test_overlap
+### 峰重叠测试
 
-Phase pairs were selected by cosine similarity among per-phase mean spectra. The test samples are evenly split across the top similarity bins:
+根据单相平均谱图的余弦相似度选取高重叠相对。
 
-| Overlap bin | Count |
+| 重叠等级 | 数量 |
 | --- | ---: |
-| top_1pct | 1,380 |
-| top_5pct | 1,380 |
-| top_10pct | 1,380 |
+| 前 1% | 1,380 |
+| 前 5% | 1,380 |
+| 前 10% | 1,380 |
 
-All samples are binary mixtures. Mean effective minor fraction is 0.200.
+所有样本为二相混合，平均少量相比例为 0.200。
 
-### test_battery_relevant
+### 电池相关组合测试
 
-Battery-relevant scenarios:
-
-| Scenario | Count |
+| 场景 | 数量 |
 | --- | ---: |
-| anode_reference | 828 |
-| anode_solid_electrolyte_reference | 828 |
-| cathode_reference | 828 |
-| cathode_solid_electrolyte_reference | 828 |
-| solid_electrolyte_reference | 828 |
+| 负极 + 参考相 | 828 |
+| 负极 + 固态电解质 + 参考相 | 828 |
+| 正极 + 参考相 | 828 |
+| 正极 + 固态电解质 + 参考相 | 828 |
+| 固态电解质 + 参考相 | 828 |
 
-Counts:
+平均主相有效比例为 0.810，平均少量相有效比例为 0.136。
 
-| Group | Count |
-| --- | ---: |
-| 2-phase | 2,484 |
-| 3-phase | 1,656 |
+## 4. 初始评估结果
 
-Mean effective major fraction: 0.810  
-Mean effective minor fraction: 0.136
+评估设置：
 
-## First Hard-Eval Results
+- 最大预测物相数为 3；
+- fixed 阈值使用 checkpoint 保存阈值；
+- val-calibrated 阈值使用 `mixed_v1/val.npz` 重新校准；
+- 诊断最优阈值只用于分析上限，不作为可部署结果。
 
-Evaluation settings:
+结果目录：
 
-- `max_predictions = 3`
-- fixed threshold uses the checkpoint threshold
-- val-calibrated threshold is recalibrated on `mixed_v1/val.npz`
-- oracle threshold is selected on each hard-eval split for diagnosis only
+- `results/mixed_phase/hard_eval/v1_presence_on_mixed_v2_hard_eval`
+- `results/mixed_phase/hard_eval/v2_frac_aux_l005_on_mixed_v2_hard_eval`
 
-Result directories:
+### v1 仅存在性基线
 
-- `results\mixed_phase\hard_eval\v1_presence_on_mixed_v2_hard_eval`
-- `results\mixed_phase\hard_eval\v2_frac_aux_l005_on_mixed_v2_hard_eval`
-
-### v1 presence-only baseline
-
-| Split | Mode | Threshold | micro-F1 | minor recall | top3 all-hit |
+| 测试集 | 阈值方式 | 阈值 | micro-F1 | 少量相召回率 | Top-3 全命中 |
 | --- | --- | ---: | ---: | ---: | ---: |
-| test_minor | fixed | 0.525 | 0.644 | 0.209 | 0.287 |
-| test_minor | val_calibrated | 0.400 | 0.644 | 0.240 | 0.287 |
-| test_minor | oracle | 0.475 | 0.645 | 0.221 | 0.287 |
-| test_overlap | fixed | 0.525 | 0.788 | 0.585 | 0.735 |
-| test_overlap | val_calibrated | 0.400 | 0.785 | 0.622 | 0.735 |
-| test_overlap | oracle | 0.675 | 0.792 | 0.542 | 0.735 |
-| test_battery_relevant | fixed | 0.525 | 0.739 | 0.403 | 0.495 |
-| test_battery_relevant | val_calibrated | 0.400 | 0.743 | 0.444 | 0.495 |
-| test_battery_relevant | oracle | 0.375 | 0.744 | 0.453 | 0.495 |
+| 少量相 | fixed | 0.525 | 0.644 | 0.209 | 0.287 |
+| 少量相 | val-calibrated | 0.400 | 0.644 | 0.240 | 0.287 |
+| 峰重叠 | fixed | 0.525 | 0.788 | 0.585 | 0.735 |
+| 电池相关 | fixed | 0.525 | 0.739 | 0.403 | 0.495 |
 
-Key fixed-threshold subgroup results:
+少量相分组结果：
 
-| Diagnostic group | micro-F1 | minor recall | top3 all-hit |
+| 分组 | micro-F1 | 少量相召回率 | Top-3 全命中 |
 | --- | ---: | ---: | ---: |
-| minor_5pct | 0.576 | 0.091 | 0.062 |
-| minor_10pct | 0.647 | 0.231 | 0.308 |
-| minor_15pct | 0.778 | 0.492 | 0.691 |
-| overlap top_1pct | 0.739 | 0.572 | 0.690 |
-| overlap top_5pct | 0.805 | 0.582 | 0.749 |
-| overlap top_10pct | 0.824 | 0.602 | 0.766 |
+| 5% 少量相 | 0.576 | 0.091 | 0.062 |
+| 10% 少量相 | 0.647 | 0.231 | 0.308 |
+| 15% 少量相 | 0.778 | 0.492 | 0.691 |
 
-### v2 fraction-aux l005 baseline
+### v2 含比例辅助头基线
 
-| Split | Mode | Threshold | micro-F1 | minor recall | top3 all-hit |
+| 测试集 | 阈值方式 | 阈值 | micro-F1 | 少量相召回率 | Top-3 全命中 |
 | --- | --- | ---: | ---: | ---: | ---: |
-| test_minor | fixed | 0.600 | 0.640 | 0.200 | 0.281 |
-| test_minor | val_calibrated | 0.550 | 0.641 | 0.212 | 0.281 |
-| test_minor | oracle | 0.500 | 0.642 | 0.225 | 0.281 |
-| test_overlap | fixed | 0.600 | 0.786 | 0.575 | 0.728 |
-| test_overlap | val_calibrated | 0.550 | 0.784 | 0.590 | 0.728 |
-| test_overlap | oracle | 0.700 | 0.789 | 0.544 | 0.728 |
-| test_battery_relevant | fixed | 0.600 | 0.734 | 0.389 | 0.494 |
-| test_battery_relevant | val_calibrated | 0.550 | 0.738 | 0.409 | 0.494 |
-| test_battery_relevant | oracle | 0.450 | 0.740 | 0.446 | 0.494 |
+| 少量相 | fixed | 0.600 | 0.640 | 0.200 | 0.281 |
+| 峰重叠 | fixed | 0.600 | 0.786 | 0.575 | 0.728 |
+| 电池相关 | fixed | 0.600 | 0.734 | 0.389 | 0.494 |
 
-## Interpretation
+## 5. 结论
 
-The hard benchmark confirms that the main weakness is low-fraction minor phase detection, especially near 5 percent. Lowering the threshold increases minor recall slightly but does not solve the problem, and oracle thresholding barely improves `test_minor` micro-F1. This suggests the issue is not only calibration; the model often does not rank the weak minor phase high enough.
+- 最主要瓶颈是低比例少量相识别，尤其是 5% 左右的弱相。
+- 仅降低阈值只能小幅提高少量相召回率，说明问题不只是阈值校准。
+- 峰重叠场景会降低性能，但比 5% 少量相问题更容易处理。
+- 比例辅助头在本轮实验中没有带来明显提升，因此主线模型仍采用仅存在性基线。
 
-The overlap benchmark is difficult but less severe than the 5 percent minor benchmark. Performance degrades most in the `top_1pct` overlap bin, which is expected and useful for reporting.
+## 6. 后续方向
 
-The fraction-level auxiliary model does not improve hard phase detection in this run. It remains useful as an ablation, but the presence-only model should stay the main mixed-phase phase-identification baseline.
+更有价值的下一步不是继续微调模型结构，而是构建困难增强训练集，重点加入：
 
-## Recommended Next Step
+- 5-10% 少量相样本；
+- 高峰重叠相对；
+- 电池相关三相组合。
 
-The next high-value experiment is a separate hard-augmented training dataset, not another small model tweak. It should add targeted samples for:
-
-- 5-10 percent minor phases
-- high-overlap pairs from the top 1-5 percent similarity bins
-- 3-phase battery-relevant mixtures with a weak reference/decomposition component
-
-The success criterion should be improved `test_minor` minor recall and `test_overlap` micro-F1 while keeping `mixed_v1 test_normal` degradation below about 0.01-0.02 micro-F1.
+成功标准是提升困难评估中的少量相召回率，同时保持普通混相测试集性能基本不下降。
