@@ -153,22 +153,22 @@ def compact_metrics() -> dict:
     return {
         "cards": [
             {
-                "label": "单相 phase accuracy",
+                "label": "single-phase accuracy",
                 "value": pct(metric_value(single, "test_normal.phase_accuracy")),
                 "detail": "test_normal",
             },
             {
-                "label": "单相 lattice MAE",
+                "label": "single-phase lattice MAE",
                 "value": f"{num(metric_value(single, 'test_normal.lattice_mae_mean'), 3)} A",
                 "detail": "test_normal mean",
             },
             {
-                "label": "混相 micro-F1",
+                "label": "mixed-phase micro-F1",
                 "value": pct(metric_value(mixed, "test_normal.micro_f1")),
                 "detail": "mixed_v3/test_normal",
             },
             {
-                "label": "混相 minor recall",
+                "label": "mixed-phase minor recall",
                 "value": pct(metric_value(mixed, "test_hard.minor_phase_recall")),
                 "detail": "mixed_v3/test_hard",
             },
@@ -334,6 +334,15 @@ class DashboardState:
             "mixed_default_threshold": float(self.mixed_checkpoint.get("best_threshold", 0.5)),
         }
 
+    def mixed_split_metrics(self, split: str) -> dict:
+        if split.startswith("mixed_v3/"):
+            key = split.split("/", 1)[1]
+            return self.metrics.get("mixed", {}).get(key, {})
+        if split.startswith("hard_eval/"):
+            key = split.split("/", 1)[1]
+            return self.metrics.get("mixed_hard", {}).get(key, {})
+        return {}
+
     def checked_single(self, split: str, index: int) -> tuple[dict, int]:
         if split not in self.single_datasets:
             raise ValueError(f"Unknown single split: {split}")
@@ -479,12 +488,19 @@ class DashboardState:
         minor_indices = [int(i) for i in true_indices if int(i) != major_idx]
         minor_hit = bool(minor_indices and all(idx in pred_set for idx in minor_indices))
         top_indices = np.argsort(-probabilities)[:8]
+        hit_count = len(true_set & pred_set)
+        true_count = max(1, len(true_set))
 
         return {
             **self.mixed_sample(split, index),
             "threshold": threshold,
             "max_predictions": max_predictions,
             "inference_time_ms": float(elapsed_ms),
+            "overall_metrics": self.mixed_split_metrics(split),
+            "true_phase_hit_count": int(hit_count),
+            "true_phase_count": int(len(true_set)),
+            "true_phase_coverage": float(hit_count / true_count),
+            "false_positive_count": int(len(false_positive)),
             "predicted_phases": [
                 {"label": data["labels"][int(i)], "probability": float(probabilities[int(i)]), "is_true": bool(int(i) in true_set)}
                 for i in pred_indices
@@ -499,11 +515,11 @@ class DashboardState:
 
 
 HTML = r"""<!doctype html>
-<html lang="zh-CN">
+<html lang="en">
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <title>XRD 自动化表征 Dashboard</title>
+  <title>XRD Autonomous Characterization Dashboard</title>
   <style>
     :root {
       --page: #f5f7fa; --panel: #ffffff; --ink: #18242e; --muted: #667482;
@@ -521,9 +537,9 @@ HTML = r"""<!doctype html>
     nav button.active { color: white; background: var(--blue); border-color: var(--blue); }
     section.view { display: none; }
     section.view.active { display: block; }
-    .cards { display: grid; grid-template-columns: repeat(6, minmax(0, 1fr)); gap: 10px; margin-bottom: 14px; }
+    .cards { display: flex; flex-wrap: wrap; gap: 10px; align-items: stretch; margin-bottom: 14px; }
     .card, .panel { background: var(--panel); border: 1px solid var(--line); border-radius: 8px; box-shadow: 0 7px 18px rgba(30, 45, 60, 0.05); }
-    .card { padding: 12px; min-height: 88px; border-left: 4px solid var(--blue); }
+    .card { flex: 0 1 210px; padding: 12px; min-height: 88px; border-left: 4px solid var(--blue); }
     .card small { display: block; color: var(--muted); font-weight: 700; margin-bottom: 7px; }
     .card strong { display: block; font-size: 22px; line-height: 1.15; }
     .card span { display: block; margin-top: 6px; color: var(--muted); font-size: 12px; }
@@ -531,7 +547,10 @@ HTML = r"""<!doctype html>
     .panel h2 { margin: 0 0 12px; font-size: 17px; letter-spacing: 0; }
     .grid2 { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; }
     .grid-main { display: grid; grid-template-columns: minmax(0, 1.75fr) minmax(360px, 1fr); gap: 14px; }
-    .toolbar { display: grid; grid-template-columns: 1fr 110px 110px 110px 120px 120px; gap: 10px; align-items: end; margin-bottom: 12px; }
+    .toolbar { display: flex; flex-wrap: wrap; gap: 10px; align-items: end; margin-bottom: 12px; }
+    .toolbar > div { flex: 0 1 150px; }
+    .toolbar > div:nth-child(2) { flex-basis: 300px; }
+    .toolbar button { flex: 0 0 118px; width: auto; }
     label { display: block; color: var(--muted); font-size: 13px; font-weight: 700; margin-bottom: 5px; }
     select, input, button { width: 100%; height: 38px; border: 1px solid var(--line); border-radius: 6px; background: white; color: var(--ink); font-size: 14px; }
     input { padding: 0 9px; }
@@ -553,45 +572,44 @@ HTML = r"""<!doctype html>
     .chip.miss { border-color: #e2b4b4; background: #fff5f5; }
     .note { color: var(--muted); font-size: 13px; line-height: 1.5; margin-top: 8px; }
     @media (max-width: 1100px) {
-      .cards { grid-template-columns: repeat(3, 1fr); }
       .grid2, .grid-main { grid-template-columns: 1fr; }
-      .toolbar { grid-template-columns: 1fr 1fr; }
+      .toolbar > div, .toolbar > div:nth-child(2), .toolbar button { flex: 1 1 180px; }
     }
-    @media (max-width: 700px) { .cards { grid-template-columns: 1fr; } canvas { height: 280px; } }
+    @media (max-width: 700px) { .card { flex-basis: 100%; } canvas { height: 280px; } }
   </style>
 </head>
 <body>
   <header>
-    <h1>XRD 自动化材料表征 Dashboard</h1>
-    <p>整合单相识别、混相识别和主动学习扩展结果，并提供本地模拟识别窗口。模型在 CPU 上加载一次，点击样本时执行单条实时推理。</p>
+    <h1>XRD Autonomous Characterization Dashboard</h1>
+    <p>Integrated view of single-phase identification, mixed-phase recognition, and the battery-focused active-learning extension. Models are loaded once locally and run single-sample inference on demand.</p>
   </header>
   <main>
     <nav>
-      <button class="tab active" data-view="overview">总览</button>
-      <button class="tab" data-view="single">单相性能</button>
-      <button class="tab" data-view="mixed">混相性能</button>
-      <button class="tab" data-view="active">主动识别</button>
-      <button class="tab" data-view="simulate">模拟识别</button>
+      <button class="tab active" data-view="overview">Overview</button>
+      <button class="tab" data-view="single">Single Phase</button>
+      <button class="tab" data-view="mixed">Mixed Phase</button>
+      <button class="tab" data-view="active">Active Learning</button>
+      <button class="tab" data-view="simulate">Simulation</button>
     </nav>
 
     <section id="overview" class="view active">
       <div class="cards" id="metricCards"></div>
       <div class="grid2">
         <div class="panel">
-          <h2>高通量表征 Workflow</h2>
+          <h2>High-Throughput Workflow</h2>
           <table>
             <tbody>
-              <tr><td>1</td><td>批量样品制备与自动编号</td></tr>
-              <tr><td>2</td><td>XRD 自动采集，生成 pattern 文件</td></tr>
-              <tr><td>3</td><td>单相 / 混相模型自动推理</td></tr>
-              <tr><td>4</td><td>输出置信度、误差、Bragg-law 可靠性指标</td></tr>
-              <tr><td>5</td><td>低置信度或高不确定样品进入人工复核 / 主动学习</td></tr>
+              <tr><td>1</td><td>Batch sample preparation and sample ID tracking</td></tr>
+              <tr><td>2</td><td>Automated XRD acquisition and pattern storage</td></tr>
+              <tr><td>3</td><td>Single-phase or mixed-phase model inference</td></tr>
+              <tr><td>4</td><td>Confidence, error, and Bragg-law reliability outputs</td></tr>
+              <tr><td>5</td><td>Low-confidence samples routed to expert review or active learning</td></tr>
             </tbody>
           </table>
         </div>
         <div class="panel">
-          <h2>最终系统定位</h2>
-          <p class="note">当前闭环主线是单相模型 + 混相模型 + hard benchmark + dashboard。主动学习模块已经纳入项目，但仍属于扩展中的 workflow loop，用于自动选择高价值样品补充训练。</p>
+          <h2>System Scope</h2>
+          <p class="note">The closed-loop core is single-phase modeling, mixed-phase modeling, hard benchmarks, and this dashboard. Active learning is included as a battery-focused workflow extension for selecting high-value samples.</p>
           <div class="chips">
             <span class="chip true">Materials Project</span>
             <span class="chip true">single-phase CNN</span>
@@ -605,49 +623,49 @@ HTML = r"""<!doctype html>
 
     <section id="single" class="view">
       <div class="panel">
-        <h2>单相指标含义</h2>
+        <h2>Metric Notes</h2>
         <table>
           <tbody>
-            <tr><td>phase accuracy</td><td>物相标签 top-1 是否预测正确，是单相自动识别的主指标。</td></tr>
-            <tr><td>top-3 accuracy</td><td>真实物相是否出现在前三个候选中，反映模型作为高通量筛选工具的候选推荐能力。</td></tr>
-            <tr><td>crystal accuracy</td><td>晶系分类是否正确，用于判断模型是否学到结构层面的信息，而不只是记住 phase label。</td></tr>
-            <tr><td>lattice MAE</td><td>预测晶格长度 a/b/c 与真实值的平均绝对误差，单位为 A，越低说明晶格参数估计越精确。</td></tr>
-            <tr><td>Bragg MAE</td><td>用预测晶格参数根据 Bragg 定律反算峰位，与参考峰位比较得到的平均误差，反映物理一致性。</td></tr>
+            <tr><td>phase accuracy</td><td>Top-1 phase-label accuracy, the main metric for single-phase identification.</td></tr>
+            <tr><td>top-3 accuracy</td><td>Whether the true phase appears in the top three candidates; useful for high-throughput screening.</td></tr>
+            <tr><td>crystal accuracy</td><td>Crystal-system classification accuracy, indicating whether the model learned structural information.</td></tr>
+            <tr><td>lattice MAE</td><td>Mean absolute error of predicted lattice lengths a/b/c, in A.</td></tr>
+            <tr><td>Bragg MAE</td><td>Peak-position error computed from predicted lattice parameters using Bragg-law consistency.</td></tr>
           </tbody>
         </table>
       </div>
-      <div class="panel"><h2>单相最终性能</h2><table id="singleTable"></table></div>
+      <div class="panel"><h2>Final Single-Phase Performance</h2><table id="singleTable"></table></div>
     </section>
 
     <section id="mixed" class="view">
       <div class="panel">
-        <h2>混相指标含义</h2>
+        <h2>Metric Notes</h2>
         <table>
           <tbody>
-            <tr><td>micro precision</td><td>所有 phase 标签整体统计后的预测准确性，表示报出的 phase 中有多少是真的。</td></tr>
-            <tr><td>micro recall</td><td>所有真实 phase 中有多少被模型找到了，反映漏检程度。</td></tr>
-            <tr><td>micro-F1</td><td>precision 与 recall 的综合指标，适合衡量 multi-label 混相识别的总体效果。</td></tr>
-            <tr><td>minor phase recall</td><td>副相、杂相、低含量成分的召回率，是混相识别中最关键、也最困难的指标。</td></tr>
-            <tr><td>top3 all-hit</td><td>真实存在的所有 phase 是否都出现在前三个候选中，反映高通量筛选时给候选列表的可靠性。</td></tr>
-            <tr><td>FP/sample</td><td>平均每个样本多报了多少不存在的 phase，数值越低说明误报越少。</td></tr>
+            <tr><td>micro precision</td><td>Across all phase labels, how many predicted phases are actually present.</td></tr>
+            <tr><td>micro recall</td><td>Across all true phases, how many were recovered by the model.</td></tr>
+            <tr><td>micro-F1</td><td>Balanced precision-recall score for multi-label mixed-phase recognition.</td></tr>
+            <tr><td>minor phase recall</td><td>Recall for secondary, impurity, or low-fraction phases; the hardest mixed-phase metric.</td></tr>
+            <tr><td>top3 all-hit</td><td>Whether all true phases appear within the top three candidates.</td></tr>
+            <tr><td>FP/sample</td><td>Average number of extra phases reported per sample; lower is better.</td></tr>
           </tbody>
         </table>
       </div>
-      <div class="panel"><h2>混相最终性能</h2><table id="mixedTable"></table></div>
-      <div class="panel"><h2>独立 Hard Benchmark</h2><table id="mixedHardTable"></table></div>
+      <div class="panel"><h2>Final Mixed-Phase Performance</h2><table id="mixedTable"></table></div>
+      <div class="panel"><h2>Independent Hard Benchmark</h2><table id="mixedHardTable"></table></div>
     </section>
 
     <section id="active" class="view">
       <div class="grid2">
         <div class="panel">
-          <h2>电池相关主动识别 Round Summary</h2>
-          <p class="note">主动识别模块当前只围绕 battery-relevant mixtures 展开，用于从电池相关候选池中挑选高不确定、高价值样品。其他 hard split 不在这一页比较，避免偏离当前主动学习目标。</p>
+          <h2>Battery-Focused Active Round Summary</h2>
+          <p class="note">The active-learning module focuses only on battery-relevant mixtures. It selects high-uncertainty, high-value samples from the battery candidate pool; other hard splits are intentionally not compared here.</p>
           <table id="activeSummary"></table>
         </div>
         <div class="panel">
           <h2>Battery-Relevant Active vs Random</h2>
-          <p class="note">`v3_baseline` 是主动学习前的最终混相模型；`active_round2` 是加入电池相关主动选择样本后的结果；random seed 是同等样本数量的随机补充对照。</p>
-          <h2>Baseline -> Active 提升证据</h2>
+          <p class="note">`v3_baseline` is the pre-active-learning mixed-phase model. `active_round2` adds battery-relevant samples selected by the active strategy. Random seeds are equal-budget random-sampling baselines.</p>
+          <h2>Baseline -> Active Improvement</h2>
           <table id="activeGainTable"></table>
           <table id="activeHardTable"></table>
         </div>
@@ -656,26 +674,27 @@ HTML = r"""<!doctype html>
 
     <section id="simulate" class="view">
       <div class="panel">
-        <h2>模拟识别</h2>
+        <h2>Recognition Simulation</h2>
+        <p class="note">For live demos, start with “Mixed phase / normal test”. Challenge sets intentionally contain low-fraction minor phases, peak-overlap pairs, and battery-relevant mixtures; a miss on one sample is not the split-level accuracy.</p>
         <div class="toolbar">
-          <div><label for="taskSelect">任务</label><select id="taskSelect"><option value="single">单相识别</option><option value="mixed">混相识别</option></select></div>
-          <div><label for="splitSelect">数据集</label><select id="splitSelect"></select></div>
-          <div><label for="sampleIndex">样本编号</label><input id="sampleIndex" type="number" min="0" value="0" /></div>
+          <div><label for="taskSelect">Task</label><select id="taskSelect"><option value="single">Single phase</option><option value="mixed">Mixed phase</option></select></div>
+          <div><label for="splitSelect">Dataset</label><select id="splitSelect"></select></div>
+          <div><label for="sampleIndex">Sample ID</label><input id="sampleIndex" type="number" min="0" value="0" /></div>
           <div><label for="thresholdInput">threshold</label><input id="thresholdInput" type="number" min="0.05" max="0.95" step="0.025" value="0.525" /></div>
           <div><label for="maxPredInput">max pred</label><input id="maxPredInput" type="number" min="1" max="8" step="1" value="3" /></div>
-          <button id="randomBtn" class="secondary">随机样本</button>
-          <button id="predictBtn">运行识别</button>
+          <button id="randomBtn" class="secondary">Random</button>
+          <button id="predictBtn">Run</button>
         </div>
       </div>
       <div class="grid-main">
         <div class="panel">
           <h2>XRD Pattern</h2>
           <canvas id="plot" width="980" height="440"></canvas>
-          <div id="sampleNote" class="note">等待加载样本。</div>
+          <div id="sampleNote" class="note">Waiting for a sample.</div>
         </div>
         <div class="panel">
-          <h2>预测结果</h2>
-          <div id="predictionPanel" class="note">请选择样本并点击“运行识别”。</div>
+          <h2>Prediction</h2>
+          <div id="predictionPanel" class="note">Select a sample and click Run.</div>
         </div>
       </div>
     </section>
@@ -688,6 +707,17 @@ HTML = r"""<!doctype html>
     const fmtNum = (v, d=3) => v === null || v === undefined ? "-" : Number(v).toFixed(d);
     const fmtMs = (v) => `${Number(v).toFixed(2)} ms`;
     const esc = (s) => String(s ?? "").replace(/[&<>"']/g, m => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[m]));
+    const splitLabels = {
+      "single/val": "Single phase / validation",
+      "single/test_normal": "Single phase / normal test",
+      "single/test_hard": "Single phase / hard test",
+      "mixed_v3/test_normal": "Mixed phase / normal test",
+      "mixed_v3/test_hard": "Mixed phase / hard test",
+      "hard_eval/test_minor": "Challenge / low-fraction minor phase",
+      "hard_eval/test_overlap": "Challenge / peak-overlap pairs",
+      "hard_eval/test_battery_relevant": "Challenge / battery-relevant mixtures",
+    };
+    const splitOptionLabel = (name, count) => `${splitLabels[name] || name} (${count})`;
 
     async function api(path, options) {
       const res = await fetch(path, options);
@@ -741,7 +771,7 @@ HTML = r"""<!doctype html>
       const task = $("taskSelect").value;
       app.task = task;
       const splits = task === "single" ? app.overview.single_splits : app.overview.mixed_splits;
-      $("splitSelect").innerHTML = splits.map(s => `<option value="${esc(s.name)}">${esc(s.name)} (${s.count})</option>`).join("");
+      $("splitSelect").innerHTML = splits.map(s => `<option value="${esc(s.name)}">${esc(splitOptionLabel(s.name, s.count))}</option>`).join("");
       $("thresholdInput").disabled = task === "single";
       $("maxPredInput").disabled = task === "single";
       updateIndexMax();
@@ -763,13 +793,13 @@ HTML = r"""<!doctype html>
       app.sample = data;
       drawSpectrum(data.two_theta, data.X);
       if (task === "single") {
-        $("sampleNote").innerHTML = `单相样本 ${data.index} / true phase: <b>${esc(data.true_label)}</b> / crystal: ${esc(data.true_crystal)} / ${esc(data.category)} ${esc(data.subclass)} ${esc(data.material_id)}`;
+        $("sampleNote").innerHTML = `Single-phase sample ${data.index} / true phase: <b>${esc(data.true_label)}</b> / crystal: ${esc(data.true_crystal)} / ${esc(data.category)} ${esc(data.subclass)} ${esc(data.material_id)}`;
       } else {
         const phases = data.true_phases.map(p => `${esc(p.label)} (${fmtPct(p.fraction)})`).join(" / ");
         const extras = Object.entries(data.extra || {}).map(([k,v]) => `${k}: ${esc(v)}`).join(" / ");
-        $("sampleNote").innerHTML = `混相样本 ${data.index} / true phases: <b>${phases}</b><br>${extras}`;
+        $("sampleNote").innerHTML = `Mixed-phase sample ${data.index} / true phases: <b>${phases}</b><br>${extras}`;
       }
-      $("predictionPanel").innerHTML = "请选择样本并点击“运行识别”。";
+      $("predictionPanel").innerHTML = "Select a sample and click Run.";
     }
     function renderTopList(items) {
       return `<ul class="result-list">${items.map(item => `<li><span>${esc(item.label)}${item.is_true ? " <b class='ok'>true</b>" : ""}</span><div class="bar"><span style="width:${Math.max(2, Number(item.probability)*100)}%"></span></div><span>${fmtPct(item.probability)}</span></li>`).join("")}</ul>`;
@@ -786,13 +816,13 @@ HTML = r"""<!doctype html>
     function renderSinglePrediction(r) {
       const latticeRows = ["a","b","c"].map((name, i) => `<tr><td>${name}</td><td>${fmtNum(r.lattice_true[i],4)}</td><td>${fmtNum(r.lattice_pred[i],4)}</td><td>${fmtNum(r.lattice_abs_error[i],4)}</td></tr>`).join("");
       $("predictionPanel").innerHTML = `
-        <div class="cards" style="grid-template-columns:repeat(2,1fr)">
+        <div class="cards">
           <div class="card"><small>phase</small><strong class="${r.phase_correct ? "ok" : "bad"}">${esc(r.pred_label)}</strong><span>true: ${esc(r.true_label)}</span></div>
           <div class="card"><small>crystal</small><strong class="${r.crystal_correct ? "ok" : "bad"}">${esc(r.pred_crystal)}</strong><span>true: ${esc(r.true_crystal)}</span></div>
           <div class="card"><small>phase confidence</small><strong>${fmtPct(r.phase_confidence)}</strong><span>top-1 probability</span></div>
           <div class="card"><small>inference time</small><strong>${fmtMs(r.inference_time_ms)}</strong><span>CPU single sample</span></div>
         </div>
-        <h2>晶格参数</h2><table><thead><tr><th>param</th><th>true</th><th>pred</th><th>abs error</th></tr></thead><tbody>${latticeRows}</tbody></table>
+        <h2>Lattice Parameters</h2><table><thead><tr><th>param</th><th>true</th><th>pred</th><th>abs error</th></tr></thead><tbody>${latticeRows}</tbody></table>
         <p class="note">Bragg peak mean error: <b>${fmtNum(r.peak_error_deg,4)} deg</b></p>
         <h2>Top-5 phase confidence</h2>${renderTopList(r.top5)}
         <h2>Top crystal confidence</h2>${renderTopList(r.top_crystal)}
@@ -803,13 +833,27 @@ HTML = r"""<!doctype html>
       const predChips = r.predicted_phases.map(p => `<span class="chip ${p.is_true ? "true" : "miss"}">${esc(p.label)} ${fmtPct(p.probability)}</span>`).join("");
       const missed = r.missed_phases.length ? r.missed_phases.map(p => `<span class="chip miss">${esc(p.label)} ${fmtPct(p.probability)}</span>`).join("") : "<span class='chip true'>none</span>";
       const fp = r.false_positives.length ? r.false_positives.map(p => `<span class="chip miss">${esc(p.label)} ${fmtPct(p.probability)}</span>`).join("") : "<span class='chip true'>none</span>";
+      const metrics = r.overall_metrics || {};
+      const metricRows = Object.keys(metrics).length ? `
+        <h2>Split-Level Metrics</h2>
+        <table><tbody>
+          <tr><td>micro-F1</td><td>${fmtPct(metrics.micro_f1)}</td></tr>
+          <tr><td>minor recall</td><td>${fmtPct(metrics.minor_phase_recall)}</td></tr>
+          <tr><td>top3 all-hit</td><td>${fmtPct(metrics.top3_all_phases_hit)}</td></tr>
+          <tr><td>FP/sample</td><td>${fmtNum(metrics.avg_false_positives_per_sample,3)}</td></tr>
+        </tbody></table>
+        <p class="note">These values summarize the whole split; the yes/no cards above describe only this single sample.</p>
+      ` : "";
       $("predictionPanel").innerHTML = `
-        <div class="cards" style="grid-template-columns:repeat(2,1fr)">
-          <div class="card"><small>all true phases hit</small><strong class="${r.all_hit ? "ok" : "bad"}">${r.all_hit ? "yes" : "no"}</strong><span>threshold ${fmtNum(r.threshold,3)}</span></div>
+        <div class="cards">
+          <div class="card"><small>all true phases hit</small><strong class="${r.all_hit ? "ok" : "bad"}">${r.all_hit ? "yes" : "no"}</strong><span>single-sample result</span></div>
+          <div class="card"><small>true phase coverage</small><strong class="${r.true_phase_coverage >= 1 ? "ok" : "bad"}">${fmtPct(r.true_phase_coverage)}</strong><span>${r.true_phase_hit_count}/${r.true_phase_count} true phases</span></div>
           <div class="card"><small>minor phases hit</small><strong class="${r.minor_hit ? "ok" : "bad"}">${r.minor_hit ? "yes" : "no"}</strong><span>major hit: ${r.major_hit ? "yes" : "no"}</span></div>
-          <div class="card"><small>predicted count</small><strong>${r.predicted_phases.length}</strong><span>max ${r.max_predictions}</span></div>
+          <div class="card"><small>predicted count</small><strong>${r.predicted_phases.length}</strong><span>max ${r.max_predictions}, FP ${r.false_positive_count}</span></div>
           <div class="card"><small>inference time</small><strong>${fmtMs(r.inference_time_ms)}</strong><span>CPU single sample</span></div>
+          <div class="card"><small>threshold</small><strong>${fmtNum(r.threshold,3)}</strong><span>default evaluation threshold</span></div>
         </div>
+        ${metricRows}
         <h2>True phases</h2><div class="chips">${trueChips}</div>
         <h2>Predicted phases</h2><div class="chips">${predChips || "<span class='chip miss'>none</span>"}</div>
         <h2>Missed phases</h2><div class="chips">${missed}</div>
@@ -829,7 +873,7 @@ HTML = r"""<!doctype html>
     $("sampleIndex").addEventListener("change", () => loadSample($("sampleIndex").value));
     $("randomBtn").addEventListener("click", () => loadSample(Math.floor(Math.random() * (Number($("sampleIndex").max || 0) + 1))));
     $("predictBtn").addEventListener("click", predict);
-    init().catch(err => { document.body.innerHTML = `<main><div class="panel"><h1>Dashboard 启动失败</h1><p>${esc(err.message)}</p></div></main>`; });
+    init().catch(err => { document.body.innerHTML = `<main><div class="panel"><h1>Dashboard failed to start</h1><p>${esc(err.message)}</p></div></main>`; });
   </script>
 </body>
 </html>
