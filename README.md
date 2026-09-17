@@ -395,28 +395,8 @@ docs/mixed_phase_hard_augmented_report.md
   mixed_v3 targeted hard augmentation 数据设计。
 ```
 
-## 12. 当前完整性检查
 
-除仍在完善中的主动学习扩展外，当前主线已经完整：
-
-- 数据来源完整：Materials Project CIF、metadata、single-phase 和 mixed-phase processed data 均已保留。
-- 数据生成完整：单相、普通混相、困难评估集、困难增强训练集均有对应脚本。
-- 模型构建完整：单相 multi-task CNN 和混相 multi-label CNN 均有模型文件。
-- 训练评估完整：训练脚本、评估脚本、checkpoint、metrics、prediction CSV、confusion matrix 和 curves 均已保留。
-- 物理一致性完整：Bragg-law peak error 作为 reliability metric 已实现并输出。
-- 可视化完整：单相模型对比 dashboard 和混相识别 dashboard 均已生成。
-
-为整理最终主线目录，部分非必要文件已移出项目目录，不建议上传到 GitHub。
-
-移出的内容包括：
-
-- Python cache 文件。
-- 重复的 mixed-phase zip 压缩包。
-- 课程评分表原件。
-
-这些文件没有删除，只是不再放在最终项目主线目录中。
-
-## 13. 当前限制与后续方向
+## 12. 当前限制与后续方向
 
 当前项目仍有以下限制：
 
